@@ -1,121 +1,69 @@
-/**
- * @license
- * SPDX-License-Identifier: Apache-2.0
-*/
-import { GoogleGenAI } from '@google/genai';
-import { useState, useMemo } from 'react';
+import React, { useState } from 'react';
 import ReactDOM from 'react-dom/client';
+import { GoogleGenerativeAI } from '@google/generative-ai';
+import './index.css';
+
+// DŮLEŽITÉ: Načtení API klíče ze správné proměnné pro Netlify
+const API_KEY = import.meta.env.VITE_GEMINI_API_KEY;
+
+// Inicializace klienta pro Gemini API
+const genAI = new GoogleGenerativeAI(API_KEY);
 
 function App() {
-  const [contentType, setContentType] = useState('blog');
-  const [topic, setTopic] = useState('');
-  const [isLoading, setIsLoading] = useState(false);
+  const [prompt, setPrompt] = useState('');
   const [streamingContent, setStreamingContent] = useState('');
-  const [generatedContent, setGeneratedContent] = useState('');
-  const [copyButtonText, setCopyButtonText] = useState('Kopírovat');
+  const [loading, setLoading] = useState(false);
 
-  const ai = useMemo(() => new GoogleGenAI({ apiKey: process.env.API_KEY }), []);
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    if (!prompt.trim()) return;
 
-  const getPrompt = () => {
-    switch (contentType) {
-      case 'blog':
-        return `Napiš odborný, dobře strukturovaný článek na blog na téma: "${topic}". Článek by měl mít úvod, několik odstavců s podnadpisy a závěr. Měl by být informativní a připravený k publikování na webu.`;
-      case 'social':
-        return `Vytvoř krátký a poutavý příspěvek na sociální sítě (pro LinkedIn nebo Facebook) na téma: "${topic}". Zaměř se na profesionální tón. Na konec přidej 3-5 relevantních hashtagů.`;
-      default:
-        return topic;
-    }
-  };
-
-  const handleGenerateContent = async () => {
-    if (isLoading || !topic.trim()) return;
-
-    setIsLoading(true);
+    setLoading(true);
     setStreamingContent('');
-    setGeneratedContent('');
-    setCopyButtonText('Kopírovat');
 
     try {
-      const response = await ai.models.generateContentStream({
-        model: 'gemini-2.5-flash-preview-04-17',
-        contents: getPrompt(),
-      });
+      const model = genAI.getGenerativeModel({ model: "gemini-pro" });
+      const result = await model.generateContentStream(prompt);
 
-      let fullContent = '';
-      for await (const chunk of response) {
-        const text = chunk.text;
-        if (text) {
-          fullContent += text;
-          setStreamingContent(prev => prev + text);
-        }
+      let text = '';
+      for await (const chunk of result.stream) {
+        const chunkText = chunk.text();
+        text += chunkText;
+        setStreamingContent(text);
       }
-      setGeneratedContent(fullContent);
     } catch (error) {
-      console.error("Error generating content:", error);
-      setStreamingContent("Došlo k chybě při generování obsahu. Zkuste to prosím znovu.");
+      console.error("Chyba při volání API:", error);
+      setStreamingContent('Nastala chyba při komunikaci s AI.');
     } finally {
-      setIsLoading(false);
-    }
-  };
-
-  const handleCopy = () => {
-    if (generatedContent) {
-      navigator.clipboard.writeText(generatedContent);
-      setCopyButtonText('Zkopírováno!');
-      setTimeout(() => setCopyButtonText('Kopírovat'), 2000);
+      setLoading(false);
     }
   };
 
   return (
     <div className="app-container">
-      <header>
-        <h1>Generátor Obsahu AI</h1>
-        <p>Vytvořte odborné články a příspěvky na sociální sítě během okamžiku.</p>
-      </header>
-
-      <main>
-        <div className="form-group">
-          <label htmlFor="content-type">Typ obsahu</label>
-          <select
-            id="content-type"
-            className="form-control"
-            value={contentType}
-            onChange={(e) => setContentType(e.target.value)}
-            disabled={isLoading}
-          >
-            <option value="blog">Článek na blog</option>
-            <option value="social">Příspěvek na sociální sítě</option>
-          </select>
-        </div>
-
-        <div className="form-group">
-          <label htmlFor="topic">Zadejte téma nebo klíčová slova</label>
-          <textarea
-            id="topic"
-            className="form-control"
-            value={topic}
-            onChange={(e) => setTopic(e.target.value)}
-            placeholder="např. 'Výhody přechodu na cloudové řešení pro malé firmy'"
-            disabled={isLoading}
-          ></textarea>
-        </div>
-
-        <button className="btn" onClick={handleGenerateContent} disabled={isLoading || !topic.trim()}>
-          {isLoading ? 'Generuji...' : 'Generovat obsah'}
+      <h1>Generátor Obsahu AI</h1>
+      <form onSubmit={handleSubmit}>
+        <textarea
+          value={prompt}
+          onChange={(e) => setPrompt(e.target.value)}
+          placeholder="Napište svůj požadavek..."
+          rows="4"
+          disabled={loading}
+        />
+        <button type="submit" disabled={loading}>
+          {loading ? 'Generuji...' : 'Generovat obsah'}
         </button>
-
-        <div className="output-container">
-          {generatedContent && !isLoading && <button className="copy-button" onClick={handleCopy}>{copyButtonText}</button>}
-          {streamingContent || isLoading ? (
-            <div className="generated-content">{streamingContent}</div>
-          ) : (
-            <p className="output-placeholder">Zde se zobrazí vygenerovaný obsah.</p>
-          )}
-        </div>
-      </main>
+      </form>
+      <div className="content-area">
+        {streamingContent && <pre>{streamingContent}</pre>}
+      </div>
     </div>
   );
 }
 
 const root = ReactDOM.createRoot(document.getElementById('root'));
-root.render(<App />);
+root.render(
+  <React.StrictMode>
+    <App />
+  </React.StrictMode>
+);
